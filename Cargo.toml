@@ -20,6 +20,9 @@ real_blackbox = []
 macro = ["iai_macro"]
 default = []
 
+[workspace]
+members = ["macro"]
+
 [[bench]]
 name = "test_regular_bench"
 harness = false
