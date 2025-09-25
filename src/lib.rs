@@ -132,6 +132,7 @@ fn run_bench(
     };
     let status = cmd
         .arg("--tool=cachegrind")
+        .arg("--cache-sim=yes")
         // Set some reasonable cache sizes. The exact sizes matter less than having fixed sizes,
         // since otherwise cachegrind would take them from the CPU and make benchmark runs
         // even more incomparable between machines.
@@ -190,16 +191,18 @@ fn parse_cachegrind_output(file: &Path) -> CachegrindStats {
                 }))
                 .collect();
 
+            let get = |key| events.get(key).copied().unwrap_or_default();
+
             CachegrindStats {
-                instruction_reads: events["Ir"],
-                instruction_l1_misses: events["I1mr"],
-                instruction_cache_misses: events["ILmr"],
-                data_reads: events["Dr"],
-                data_l1_read_misses: events["D1mr"],
-                data_cache_read_misses: events["DLmr"],
-                data_writes: events["Dw"],
-                data_l1_write_misses: events["D1mw"],
-                data_cache_write_misses: events["DLmw"],
+                instruction_reads: get("Ir"),
+                instruction_l1_misses: get("I1mr"),
+                instruction_cache_misses: get("ILmr"),
+                data_reads: get("Dr"),
+                data_l1_read_misses: get("D1mr"),
+                data_cache_read_misses: get("DLmr"),
+                data_writes: get("Dw"),
+                data_l1_write_misses: get("D1mw"),
+                data_cache_write_misses: get("DLmw"),
             }
         }
         _ => panic!("Unable to parse cachegrind output file"),
