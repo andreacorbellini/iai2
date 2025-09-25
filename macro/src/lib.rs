@@ -1,3 +1,11 @@
+#![warn(clippy::dbg_macro)]
+#![warn(clippy::print_stderr)]
+#![warn(clippy::print_stdout)]
+#![warn(missing_debug_implementations)]
+#![warn(unreachable_pub)]
+#![warn(unused_qualifications)]
+#![doc(test(attr(deny(warnings))))]
+
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenTree};
