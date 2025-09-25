@@ -31,7 +31,9 @@ fn bench_binary_search() -> usize {
         array
     };
 
-    black_box(&LARGE_ARRAY).binary_search(&black_box(123)).expect("number not found")
+    black_box(&LARGE_ARRAY)
+        .binary_search(&black_box(123))
+        .expect("number not found")
 }
 
 fn bench_binary_search_with_allocation() -> usize {
@@ -42,7 +44,15 @@ fn bench_binary_search_with_allocation() -> usize {
         black_box(&mut vec).push(black_box(i));
     }
 
-    black_box(&vec).binary_search(&black_box(123)).expect("number not found")
+    black_box(&vec)
+        .binary_search(&black_box(123))
+        .expect("number not found")
 }
 
-iai::main!(bench_empty, bench_fibonacci, bench_fibonacci_long, bench_binary_search, bench_binary_search_with_allocation);
+iai::main!(
+    bench_empty,
+    bench_fibonacci,
+    bench_fibonacci_long,
+    bench_binary_search,
+    bench_binary_search_with_allocation
+);
