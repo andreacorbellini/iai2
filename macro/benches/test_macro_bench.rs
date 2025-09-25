@@ -12,9 +12,7 @@ fn fibonacci(n: u64) -> u64 {
 }
 
 #[iai]
-fn bench_empty() {
-    return;
-}
+fn bench_empty() {}
 
 #[iai]
 fn bench_fibonacci() -> u64 {

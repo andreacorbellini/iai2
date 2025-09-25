@@ -10,8 +10,8 @@ pub fn iai(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let span = proc_macro2::Span::call_site();
 
     let function_name = find_name(item.clone());
-    let wrapper_function_name = Ident::new(&format!("wrap_{}", function_name.to_string()), span);
-    let const_name = Ident::new(&format!("IAI_FUNC_{}", function_name.to_string()), span);
+    let wrapper_function_name = Ident::new(&format!("wrap_{}", function_name), span);
+    let const_name = Ident::new(&format!("IAI_FUNC_{}", function_name), span);
     let name_literal = function_name.to_string();
 
     let output = quote_spanned!(span=>
@@ -30,11 +30,11 @@ pub fn iai(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 fn find_name(stream: proc_macro2::TokenStream) -> Ident {
     let mut iter = stream.into_iter();
-    while let Some(tok) = iter.next() {
-        if let TokenTree::Ident(ident) = tok {
-            if ident == "fn" {
-                break;
-            }
+    for tok in iter.by_ref() {
+        if let TokenTree::Ident(ident) = tok
+            && ident == "fn"
+        {
+            break;
         }
     }
 
