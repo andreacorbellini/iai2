@@ -1,4 +1,4 @@
-use iai::black_box;
+use std::hint::black_box;
 
 fn fibonacci(n: u64) -> u64 {
     match n {

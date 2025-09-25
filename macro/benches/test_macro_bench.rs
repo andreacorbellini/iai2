@@ -1,8 +1,8 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(iai::runner)]
 
-use iai::black_box;
 use iai::iai;
+use std::hint::black_box;
 
 fn fibonacci(n: u64) -> u64 {
     match n {

@@ -39,7 +39,7 @@ macro_rules! main {
         mod iai_wrappers {
             $(
                 pub fn $func_name() {
-                    let _ = $crate::black_box(super::$func_name());
+                    let _ = ::core::hint::black_box(super::$func_name());
                 }
             )+
         }

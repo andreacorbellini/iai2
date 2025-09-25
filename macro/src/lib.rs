@@ -18,7 +18,7 @@ pub fn iai(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #item
 
         fn #wrapper_function_name() {
-            let _ = iai::black_box(#function_name());
+            let _ = ::core::hint::black_box(#function_name());
         }
 
         #[test_case]
