@@ -18,6 +18,7 @@ use std::{
 pub use iai_macro::iai;
 
 mod macros;
+mod valgrind;
 
 fn check_valgrind() -> bool {
     let result = Command::new("valgrind")
@@ -114,6 +115,7 @@ fn run_bench(
     let status = cmd
         .arg("--tool=cachegrind")
         .arg("--cache-sim=yes")
+        .arg("--instr-at-start=no")
         // Set some reasonable cache sizes. The exact sizes matter less than having fixed sizes,
         // since otherwise cachegrind would take them from the CPU and make benchmark runs
         // even more incomparable between machines.
@@ -273,6 +275,10 @@ pub fn runner(benches: &[&(&'static str, fn())]) {
     let executable = args_iter.next().unwrap();
 
     if let Some("--iai-run") = args_iter.next().as_deref() {
+        if !valgrind::running_on_valgrind() {
+            eprintln!("warning: not running under valgrind");
+        }
+
         // In this branch, we're running under cachegrind, so execute the benchmark as quickly as
         // possible and exit
         let index: isize = args_iter.next().unwrap().parse().unwrap();
@@ -285,7 +291,9 @@ pub fn runner(benches: &[&(&'static str, fn())]) {
 
         let index = index as usize;
 
+        valgrind::start_instrumentation();
         (benches[index].1)();
+        valgrind::stop_instrumentation();
         return;
     }
 
