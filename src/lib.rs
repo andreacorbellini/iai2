@@ -9,7 +9,11 @@ mod valgrind;
 
 use crate::valgrind::Cachegrind;
 use crate::valgrind::parse_cachegrind_output;
-use std::{env::args, hint::black_box, io, path::PathBuf, process::ExitCode};
+use std::env::args;
+use std::hint::black_box;
+use std::io;
+use std::path::PathBuf;
+use std::process::ExitCode;
 
 fn run_bench(
     executable: &str,
