@@ -43,11 +43,11 @@
 #[macro_export]
 macro_rules! main {
     ( $( $func_name:ident ),+ $(,)* ) => {
-        fn main() {
-            static BENCHMARKS: &[&(&'static str, fn(&'_ mut $crate::Iai))]= &[$(
-                    &(stringify!($func_name), $func_name),
+        fn main() -> ::std::process::ExitCode {
+            static BENCHMARKS: &[(&'static str, fn(&'_ mut $crate::Iai))]= &[$(
+                    (stringify!($func_name), $func_name),
             )+];
-            $crate::runner(BENCHMARKS);
+            $crate::runner(BENCHMARKS)
         }
     }
 }

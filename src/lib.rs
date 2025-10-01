@@ -15,35 +15,8 @@ use std::{
     hint::black_box,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::ExitCode,
 };
-
-fn check_valgrind() -> bool {
-    let result = Command::new("valgrind")
-        .arg("--tool=cachegrind")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-    match result {
-        Err(e) => {
-            eprintln!("Unexpected error while launching valgrind. Error: {}", e);
-            false
-        }
-        Ok(status) => {
-            if status.success() {
-                true
-            } else {
-                eprintln!(
-                    "Failed to launch valgrind. Error: {}. Please ensure that valgrind is installed and on the $PATH.",
-                    status
-                );
-                false
-            }
-        }
-    }
-}
 
 fn run_bench(
     executable: &str,
@@ -204,8 +177,9 @@ impl CachegrindSummary {
 }
 
 /// Custom-test-framework runner. Should not be called directly.
+#[must_use]
 #[doc(hidden)]
-pub fn runner(benches: &[&(&'static str, fn(&'_ mut Iai))]) {
+pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
     let mut args_iter = args();
     let executable = args_iter.next().unwrap();
 
@@ -222,7 +196,7 @@ pub fn runner(benches: &[&(&'static str, fn(&'_ mut Iai))]) {
         // subtract out the overhead from startup and dispatching to the right benchmark.
         if index == -1 {
             Iai::new().run(|| {});
-            return;
+            return ExitCode::SUCCESS;
         }
 
         let index = index as usize;
@@ -231,12 +205,14 @@ pub fn runner(benches: &[&(&'static str, fn(&'_ mut Iai))]) {
 
         f(&mut iai);
 
-        return;
+        return ExitCode::SUCCESS;
     }
 
     // Otherwise we're running normally, under cargo
-    if !check_valgrind() {
-        return;
+    if let Err(err) = Cachegrind::check() {
+        eprintln!("{err}");
+        eprintln!("Please ensure that valgrind is installed and on $PATH");
+        return ExitCode::FAILURE;
     }
 
     let allow_aslr = std::env::var_os("IAI_ALLOW_ASLR").is_some();
@@ -334,6 +310,8 @@ pub fn runner(benches: &[&(&'static str, fn(&'_ mut Iai))]) {
         );
         println!();
     }
+
+    ExitCode::SUCCESS
 }
 
 #[derive(Debug)]

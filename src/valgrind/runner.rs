@@ -74,4 +74,22 @@ impl Cachegrind {
 
         cmd.stdout(Stdio::null()).stderr(Stdio::null()).status()
     }
+
+    pub(crate) fn check() -> Result<(), String> {
+        let result = Command::new("valgrind")
+            .arg("--tool=cachegrind")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .output();
+
+        match result {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(format!(
+                "valgrind exited with {}:\n{}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            )),
+            Err(err) => Err(format!("Failed to run valgrind: {err}")),
+        }
+    }
 }
