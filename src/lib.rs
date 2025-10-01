@@ -9,7 +9,7 @@ mod valgrind;
 
 use crate::valgrind::Cachegrind;
 use crate::valgrind::parse_cachegrind_output;
-use std::{env::args, hint::black_box, path::PathBuf, process::ExitCode};
+use std::{env::args, hint::black_box, io, path::PathBuf, process::ExitCode};
 
 fn run_bench(
     executable: &str,
@@ -21,9 +21,16 @@ fn run_bench(
     let old_file = output_file.with_file_name(format!("cachegrind.out.{}.old", name));
     std::fs::create_dir_all(output_file.parent().unwrap()).expect("Failed to create directory");
 
-    if output_file.exists() {
-        // Already run this benchmark once; move last results to .old
-        std::fs::copy(&output_file, &old_file).unwrap();
+    // If this benchmark was already run once, move the last results to .old
+    match std::fs::rename(&output_file, &old_file) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => eprintln!(
+            "Failed to rename {} to {}: {}",
+            output_file.display(),
+            old_file.display(),
+            err
+        ),
     }
 
     let status = Cachegrind::new()
