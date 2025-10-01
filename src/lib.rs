@@ -4,7 +4,10 @@
 #![warn(unused_qualifications)]
 #![doc(test(attr(deny(warnings))))]
 
-use cfg_if::cfg_if;
+mod macros;
+mod valgrind;
+
+use crate::valgrind::Cachegrind;
 use std::{
     collections::HashMap,
     env::args,
@@ -14,9 +17,6 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
-
-mod macros;
-mod valgrind;
 
 fn check_valgrind() -> bool {
     let result = Command::new("valgrind")
@@ -45,36 +45,6 @@ fn check_valgrind() -> bool {
     }
 }
 
-fn basic_valgrind() -> Command {
-    Command::new("valgrind")
-}
-
-// Invoke Valgrind, disabling ASLR if possible because ASLR could noise up the results a bit
-cfg_if! {
-    if #[cfg(target_os = "linux")] {
-        fn valgrind_without_aslr() -> Command {
-            let mut cmd = Command::new("setarch");
-            cmd.arg("-R")
-                .arg("valgrind");
-            cmd
-        }
-    } else if #[cfg(target_os = "freebsd")] {
-        fn valgrind_without_aslr() -> Command {
-            let mut cmd = Command::new("proccontrol");
-            cmd.arg("-m")
-                .arg("aslr")
-                .arg("-s")
-                .arg("disable");
-            cmd
-        }
-    } else {
-        fn valgrind_without_aslr() -> Command {
-            // Can't disable ASLR on this platform
-            basic_valgrind()
-        }
-    }
-}
-
 fn run_bench(
     executable: &str,
     i: isize,
@@ -90,29 +60,10 @@ fn run_bench(
         std::fs::copy(&output_file, &old_file).unwrap();
     }
 
-    let mut cmd = if allow_aslr {
-        basic_valgrind()
-    } else {
-        valgrind_without_aslr()
-    };
-
-    let status = cmd
-        .arg("--tool=cachegrind")
-        .arg("--cache-sim=yes")
-        .arg("--instr-at-start=no")
-        // Set some reasonable cache sizes. The exact sizes matter less than having fixed sizes,
-        // since otherwise cachegrind would take them from the CPU and make benchmark runs
-        // even more incomparable between machines.
-        .arg("--I1=32768,8,64")
-        .arg("--D1=32768,8,64")
-        .arg("--LL=8388608,16,64")
-        .arg(format!("--cachegrind-out-file={}", output_file.display()))
-        .arg(executable)
-        .arg("--iai-run")
-        .arg(i.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+    let status = Cachegrind::new()
+        .allow_aslr(allow_aslr)
+        .out_file(&output_file)
+        .run([executable, "--iai-run", &i.to_string(), name])
         .expect("Failed to run benchmark in cachegrind");
 
     if !status.success() {
