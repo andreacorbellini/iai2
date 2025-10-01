@@ -13,14 +13,9 @@ license = "Apache-2.0/MIT"
 
 [dependencies]
 cfg-if = "1.0"
-iai_macro = { version = "0.1.0", path = "macro", optional = true }
 
 [features]
-macro = ["iai_macro"]
 default = []
-
-[workspace]
-members = ["macro"]
 
 [[bench]]
 name = "test_regular_bench"

@@ -15,9 +15,6 @@ use std::{
     process::{Command, Stdio},
 };
 
-#[cfg(feature = "macro")]
-pub use iai_macro::iai;
-
 mod macros;
 mod valgrind;
 
