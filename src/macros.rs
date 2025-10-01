@@ -16,15 +16,23 @@
 /// In this case, `my_bench` must be a rust file inside the 'benches' directory,
 /// like so:
 ///
-/// `benches/my_bench.rs`
+/// ```text
+/// benches/my_bench.rs
+/// ```
 ///
 /// Since we've disabled the default benchmark harness, we need to add our own:
 ///
-/// ```ignore
-/// fn bench_method1() {
+/// ```
+/// use iai::Iai;
+///
+/// # #[allow(dead_code)]
+/// fn bench_method1(iai: &mut Iai) {
+///     iai.run(|| { /* ... */ });
 /// }
 ///
-/// fn bench_method2() {
+/// # #[allow(dead_code)]
+/// fn bench_method2(iai: &mut Iai) {
+///     iai.run(|| { /* ... */ });
 /// }
 ///
 /// iai::main!(bench_method1, bench_method2);
@@ -32,12 +40,11 @@
 ///
 /// The `iai::main` macro expands to a `main` function which runs all of the
 /// benchmarks in the given groups.
-///
 #[macro_export]
 macro_rules! main {
     ( $( $func_name:ident ),+ $(,)* ) => {
         fn main() {
-            static BENCHMARKS: &[&(&'static str, fn(&'_ mut ::iai::Iai))]= &[$(
+            static BENCHMARKS: &[&(&'static str, fn(&'_ mut $crate::Iai))]= &[$(
                     &(stringify!($func_name), $func_name),
             )+];
             $crate::runner(BENCHMARKS);
