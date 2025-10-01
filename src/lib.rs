@@ -8,15 +8,8 @@ mod macros;
 mod valgrind;
 
 use crate::valgrind::Cachegrind;
-use std::{
-    collections::HashMap,
-    env::args,
-    fs::File,
-    hint::black_box,
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::ExitCode,
-};
+use crate::valgrind::parse_cachegrind_output;
+use std::{env::args, hint::black_box, path::PathBuf, process::ExitCode};
 
 fn run_bench(
     executable: &str,
@@ -46,58 +39,11 @@ fn run_bench(
         );
     }
 
-    let new_stats = parse_cachegrind_output(&output_file);
-    let old_stats = if old_file.exists() {
-        Some(parse_cachegrind_output(&old_file))
-    } else {
-        None
-    };
+    let new_stats =
+        parse_cachegrind_output(&output_file).expect("Failed to parse cachegrind output");
+    let old_stats = parse_cachegrind_output(&old_file).ok();
 
     (new_stats, old_stats)
-}
-
-fn parse_cachegrind_output(file: &Path) -> CachegrindStats {
-    let mut events_line = None;
-    let mut summary_line = None;
-
-    let file_in = File::open(file).expect("Unable to open cachegrind output file");
-
-    for line in BufReader::new(file_in).lines() {
-        let line = line.unwrap();
-        if let Some(line) = line.strip_prefix("events: ") {
-            events_line = Some(line.trim().to_owned());
-        }
-        if let Some(line) = line.strip_prefix("summary: ") {
-            summary_line = Some(line.trim().to_owned());
-        }
-    }
-
-    match (events_line, summary_line) {
-        (Some(events), Some(summary)) => {
-            let events: HashMap<_, _> = events
-                .split_whitespace()
-                .zip(summary.split_whitespace().map(|s| {
-                    s.parse::<u64>()
-                        .expect("Unable to parse summary line from cachegrind output file")
-                }))
-                .collect();
-
-            let get = |key| events.get(key).copied().unwrap_or_default();
-
-            CachegrindStats {
-                instruction_reads: get("Ir"),
-                instruction_l1_misses: get("I1mr"),
-                instruction_cache_misses: get("ILmr"),
-                data_reads: get("Dr"),
-                data_l1_read_misses: get("D1mr"),
-                data_cache_read_misses: get("DLmr"),
-                data_writes: get("Dw"),
-                data_l1_write_misses: get("D1mw"),
-                data_cache_write_misses: get("DLmw"),
-            }
-        }
-        _ => panic!("Unable to parse cachegrind output file"),
-    }
 }
 
 #[derive(Clone, Debug)]
