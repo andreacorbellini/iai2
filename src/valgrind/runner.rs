@@ -3,7 +3,6 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::process::ExitStatus;
 use std::process::Stdio;
 
 pub(crate) struct Cachegrind {
@@ -29,7 +28,7 @@ impl Cachegrind {
         self
     }
 
-    pub(crate) fn run<I, S>(&self, args: I) -> io::Result<ExitStatus>
+    pub(crate) fn run<I, S>(&self, args: I) -> io::Result<()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -72,7 +71,11 @@ impl Cachegrind {
             cmd.arg(arg);
         }
 
-        cmd.stdout(Stdio::null()).stderr(Stdio::null()).status()
+        let status = cmd.stdout(Stdio::null()).stderr(Stdio::null()).status()?;
+        match status.success() {
+            true => Ok(()),
+            false => Err(io::Error::other(format!("valgrind exited with {status}"))),
+        }
     }
 
     pub(crate) fn check() -> Result<(), String> {

@@ -11,26 +11,44 @@ use crate::valgrind::Cachegrind;
 use crate::valgrind::CachegrindStats;
 use crate::valgrind::parse_cachegrind_output;
 use std::env::args;
+use std::fs;
 use std::hint::black_box;
 use std::io;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::ExitCode;
+
+macro_rules! warn {
+     ( $( $tt:tt )* ) => {{
+         ::std::eprint!("warning: ");
+         ::std::eprintln!($( $tt )*)
+     }}
+}
+
+macro_rules! error {
+     ( $( $tt:tt )* ) => {{
+         ::std::eprint!("error: ");
+         ::std::eprintln!($( $tt )*)
+     }}
+}
 
 fn run_bench(
     executable: &str,
     i: isize,
     name: &str,
     allow_aslr: bool,
-) -> (CachegrindStats, Option<CachegrindStats>) {
-    let output_file = PathBuf::from(format!("target/iai/cachegrind.out.{}", name));
-    let old_file = output_file.with_file_name(format!("cachegrind.out.{}.old", name));
-    std::fs::create_dir_all(output_file.parent().unwrap()).expect("Failed to create directory");
+) -> Result<(CachegrindStats, Option<CachegrindStats>), String> {
+    let dir = Path::new("target/iai");
+    let output_file = dir.join(format!("cachegrind.out.{}", name));
+    let old_file = dir.join(format!("cachegrind.out.{}.old", name));
+
+    fs::create_dir_all(dir)
+        .map_err(|err| format!("Failed to create directory {}: {}", dir.display(), err))?;
 
     // If this benchmark was already run once, move the last results to .old
-    match std::fs::rename(&output_file, &old_file) {
+    match fs::rename(&output_file, &old_file) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(err) => eprintln!(
+        Err(err) => warn!(
             "Failed to rename {} to {}: {}",
             output_file.display(),
             old_file.display(),
@@ -38,24 +56,17 @@ fn run_bench(
         ),
     }
 
-    let status = Cachegrind::new()
+    Cachegrind::new()
         .allow_aslr(allow_aslr)
         .out_file(&output_file)
         .run([executable, "--iai-run", &i.to_string(), name])
-        .expect("Failed to run benchmark in cachegrind");
+        .map_err(|err| format!("Failed to run benchmark in cachegrind: {err}"))?;
 
-    if !status.success() {
-        panic!(
-            "Failed to run benchmark in cachegrind. Exit code: {}",
-            status
-        );
-    }
-
-    let new_stats =
-        parse_cachegrind_output(&output_file).expect("Failed to parse cachegrind output");
+    let new_stats = parse_cachegrind_output(&output_file)
+        .map_err(|err| format!("Failed to parse cachegrind output: {err}"))?;
     let old_stats = parse_cachegrind_output(&old_file).ok();
 
-    (new_stats, old_stats)
+    Ok((new_stats, old_stats))
 }
 
 /// Custom-test-framework runner. Should not be called directly.
@@ -67,7 +78,7 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
 
     if let Some("--iai-run") = args_iter.next().as_deref() {
         if !valgrind::running_on_valgrind() {
-            eprintln!("warning: not running under valgrind");
+            warn!("Not running under valgrind");
         }
 
         // In this branch, we're running under cachegrind, so execute the benchmark as quickly as
@@ -92,18 +103,32 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
 
     // Otherwise we're running normally, under cargo
     if let Err(err) = Cachegrind::check() {
-        eprintln!("{err}");
-        eprintln!("Please ensure that valgrind is installed and on $PATH");
+        error!("{err}");
+        error!("Please ensure that valgrind is installed and on $PATH");
         return ExitCode::FAILURE;
     }
 
     let allow_aslr = std::env::var_os("IAI_ALLOW_ASLR").is_some();
 
-    let (calibration, old_calibration) = run_bench(&executable, -1, "iai_calibration", allow_aslr);
+    let (calibration, old_calibration) =
+        match run_bench(&executable, -1, "iai_calibration", allow_aslr) {
+            Ok(value) => value,
+            Err(err) => {
+                error!("{err}");
+                return ExitCode::FAILURE;
+            }
+        };
 
     for (i, (name, _func)) in benches.iter().enumerate() {
         println!("{}", name);
-        let (stats, old_stats) = run_bench(&executable, i as isize, name, allow_aslr);
+        let (stats, old_stats) = match run_bench(&executable, i as isize, name, allow_aslr) {
+            Ok(value) => value,
+            Err(err) => {
+                error!("{err}");
+                return ExitCode::FAILURE;
+            }
+        };
+
         let (stats, old_stats) = (
             stats.subtract(&calibration),
             match (&old_stats, &old_calibration) {
