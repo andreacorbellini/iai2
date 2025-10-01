@@ -10,11 +10,12 @@ mod valgrind;
 use crate::valgrind::Cachegrind;
 use crate::valgrind::CachegrindStats;
 use crate::valgrind::parse_cachegrind_output;
+use std::env;
 use std::env::args;
 use std::fs;
 use std::hint::black_box;
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 macro_rules! warn {
@@ -37,12 +38,14 @@ fn run_bench(
     name: &str,
     allow_aslr: bool,
 ) -> Result<(CachegrindStats, Option<CachegrindStats>), String> {
-    let dir = Path::new("target/iai");
-    let output_file = dir.join(format!("cachegrind.out.{}", name));
-    let old_file = dir.join(format!("cachegrind.out.{}.old", name));
+    let target_dir =
+        PathBuf::from(env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()));
+    let iai_dir = target_dir.join("iai");
+    let output_file = iai_dir.join(format!("cachegrind.out.{}", name));
+    let old_file = iai_dir.join(format!("cachegrind.out.{}.old", name));
 
-    fs::create_dir_all(dir)
-        .map_err(|err| format!("Failed to create directory {}: {}", dir.display(), err))?;
+    fs::create_dir_all(&iai_dir)
+        .map_err(|err| format!("Failed to create directory {}: {}", iai_dir.display(), err))?;
 
     // If this benchmark was already run once, move the last results to .old
     match fs::rename(&output_file, &old_file) {
@@ -108,7 +111,7 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let allow_aslr = std::env::var_os("IAI_ALLOW_ASLR").is_some();
+    let allow_aslr = env::var_os("IAI_ALLOW_ASLR").is_some();
 
     let (calibration, old_calibration) =
         match run_bench(&executable, -1, "iai_calibration", allow_aslr) {
