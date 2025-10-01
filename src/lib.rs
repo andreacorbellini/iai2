@@ -28,14 +28,14 @@ fn check_valgrind() -> bool {
 
     match result {
         Err(e) => {
-            println!("Unexpected error while launching valgrind. Error: {}", e);
+            eprintln!("Unexpected error while launching valgrind. Error: {}", e);
             false
         }
         Ok(status) => {
             if status.success() {
                 true
             } else {
-                println!(
+                eprintln!(
                     "Failed to launch valgrind. Error: {}. Please ensure that valgrind is installed and on the $PATH.",
                     status
                 );
