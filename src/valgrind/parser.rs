@@ -1,4 +1,4 @@
-use crate::CachegrindStats;
+use crate::valgrind::stats::CachegrindStats;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
