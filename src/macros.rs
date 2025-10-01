@@ -36,24 +36,11 @@
 #[macro_export]
 macro_rules! main {
     ( $( $func_name:ident ),+ $(,)* ) => {
-        mod iai_wrappers {
-            $(
-                pub fn $func_name() {
-                    let _ = ::core::hint::black_box(super::$func_name());
-                }
-            )+
-        }
-
         fn main() {
-
-            let benchmarks : &[&(&'static str, fn())]= &[
-
-                $(
-                    &(stringify!($func_name), iai_wrappers::$func_name),
-                )+
-            ];
-
-            $crate::runner(benchmarks);
+            static BENCHMARKS: &[&(&'static str, fn(&'_ mut ::iai::Iai))]= &[$(
+                    &(stringify!($func_name), $func_name),
+            )+];
+            $crate::runner(BENCHMARKS);
         }
     }
 }

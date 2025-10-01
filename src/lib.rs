@@ -9,6 +9,7 @@ use std::{
     collections::HashMap,
     env::args,
     fs::File,
+    hint::black_box,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -256,7 +257,7 @@ impl CachegrindSummary {
 
 /// Custom-test-framework runner. Should not be called directly.
 #[doc(hidden)]
-pub fn runner(benches: &[&(&'static str, fn())]) {
+pub fn runner(benches: &[&(&'static str, fn(&'_ mut Iai))]) {
     let mut args_iter = args();
     let executable = args_iter.next().unwrap();
 
@@ -272,14 +273,16 @@ pub fn runner(benches: &[&(&'static str, fn())]) {
         // -1 is used as a signal to do nothing and return. By recording an empty benchmark, we can
         // subtract out the overhead from startup and dispatching to the right benchmark.
         if index == -1 {
+            Iai::new().run(|| {});
             return;
         }
 
         let index = index as usize;
+        let f = benches[index].1;
+        let mut iai = Iai::new();
 
-        valgrind::start_instrumentation();
-        (benches[index].1)();
-        valgrind::stop_instrumentation();
+        f(&mut iai);
+
         return;
     }
 
@@ -382,5 +385,28 @@ pub fn runner(benches: &[&(&'static str, fn())]) {
             }
         );
         println!();
+    }
+}
+
+#[derive(Debug)]
+pub struct Iai {}
+
+impl Iai {
+    fn new() -> Self {
+        Self {}
+    }
+
+    /// Runs and measures the given closure.
+    ///
+    /// The result of the closure is returned. This implies that, if the return type implements
+    /// [`Drop`], the overhead of the `Drop` implementation is not measured.
+    pub fn run<F, T>(&mut self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        valgrind::start_instrumentation();
+        let result = black_box(f());
+        valgrind::stop_instrumentation();
+        result
     }
 }
