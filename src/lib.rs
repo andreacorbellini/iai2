@@ -59,7 +59,7 @@ impl Benchmark {
     fn name(&self) -> &str {
         match self {
             Self::User(name) => name,
-            Self::Calibration => "calibration",
+            Self::Calibration => "::iai::calibration",
         }
     }
 }
@@ -68,7 +68,7 @@ impl FromStr for Benchmark {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "calibration" {
+        if s == Self::Calibration.name() {
             Ok(Self::Calibration)
         } else {
             Ok(Self::User(s.to_string()))
