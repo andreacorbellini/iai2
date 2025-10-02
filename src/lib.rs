@@ -2,6 +2,7 @@
 #![warn(missing_debug_implementations)]
 #![warn(unreachable_pub)]
 #![warn(unused_qualifications)]
+#![warn(unused_crate_dependencies)]
 #![doc(test(attr(deny(warnings))))]
 
 mod macros;
@@ -10,13 +11,18 @@ mod valgrind;
 use crate::valgrind::Cachegrind;
 use crate::valgrind::CachegrindStats;
 use crate::valgrind::parse_cachegrind_output;
+use clap::Parser;
+use std::convert::Infallible;
 use std::env;
-use std::env::args;
+use std::error::Error;
+use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fs;
 use std::hint::black_box;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 
 macro_rules! warn {
      ( $( $tt:tt )* ) => {{
@@ -32,73 +38,145 @@ macro_rules! error {
      }}
 }
 
-fn run_bench(
-    executable: &str,
-    i: isize,
-    name: &str,
-    allow_aslr: bool,
-) -> Result<(CachegrindStats, Option<CachegrindStats>), String> {
-    let target_dir =
-        PathBuf::from(env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()));
-    let iai_dir = target_dir.join("iai");
-    let output_file = iai_dir.join(format!("cachegrind.out.{}", name));
-    let old_file = iai_dir.join(format!("cachegrind.out.{}.old", name));
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    #[arg(long)]
+    bench: bool,
 
-    fs::create_dir_all(&iai_dir)
-        .map_err(|err| format!("Failed to create directory {}: {}", iai_dir.display(), err))?;
+    #[arg(long)]
+    #[doc(hidden)]
+    iai_run: Option<Benchmark>,
+}
 
-    // If this benchmark was already run once, move the last results to .old
-    match fs::rename(&output_file, &old_file) {
-        Ok(()) => {}
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(err) => warn!(
-            "Failed to rename {} to {}: {}",
-            output_file.display(),
-            old_file.display(),
-            err
-        ),
+#[derive(Clone, Debug)]
+enum Benchmark {
+    User(String),
+    Calibration,
+}
+
+impl Benchmark {
+    fn name(&self) -> &str {
+        match self {
+            Self::User(name) => name,
+            Self::Calibration => "calibration",
+        }
     }
 
-    Cachegrind::new()
-        .allow_aslr(allow_aslr)
-        .out_file(&output_file)
-        .run([executable, "--iai-run", &i.to_string(), name])
-        .map_err(|err| format!("Failed to run benchmark in cachegrind: {err}"))?;
+    fn is_calibration(&self) -> bool {
+        matches!(self, Self::Calibration)
+    }
+}
 
-    let new_stats = parse_cachegrind_output(&output_file)
-        .map_err(|err| format!("Failed to parse cachegrind output: {err}"))?;
-    let old_stats = parse_cachegrind_output(&old_file).ok();
+impl FromStr for Benchmark {
+    type Err = Infallible;
 
-    Ok((new_stats, old_stats))
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "calibration" {
+            Ok(Self::Calibration)
+        } else {
+            Ok(Self::User(s.to_string()))
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Stats {
+    new: CachegrindStats,
+    old: Option<CachegrindStats>,
+}
+
+impl Stats {
+    fn subtract(&self, other: &Self) -> Self {
+        let new = self.new.subtract(&other.new);
+        let old = match (&self.old, &other.old) {
+            (Some(a), Some(b)) => Some(a.subtract(b)),
+            _ => None,
+        };
+        Self { new, old }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BenchRunner {
+    executable: OsString,
+    allow_aslr: bool,
+}
+
+impl BenchRunner {
+    fn new<S: AsRef<OsStr>>(executable: S) -> Self {
+        Self {
+            executable: executable.as_ref().to_owned(),
+            allow_aslr: false,
+        }
+    }
+
+    fn allow_aslr(&mut self, allow_aslr: bool) -> &mut Self {
+        self.allow_aslr = allow_aslr;
+        self
+    }
+
+    fn run(&mut self, benchmark: &Benchmark) -> Result<Stats, Box<dyn Error>> {
+        let name = benchmark.name();
+
+        let target_dir =
+            PathBuf::from(env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()));
+        let iai_dir = target_dir.join("iai");
+        let output_file = iai_dir.join(format!("cachegrind.out.{}", name));
+        let old_file = iai_dir.join(format!("cachegrind.out.{}.old", name));
+
+        fs::create_dir_all(&iai_dir)
+            .map_err(|err| format!("Failed to create directory {}: {}", iai_dir.display(), err))?;
+
+        // If this benchmark was already run once, move the last results to .old
+        match fs::rename(&output_file, &old_file) {
+            Ok(()) => {}
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => warn!(
+                "Failed to rename {} to {}: {}",
+                output_file.display(),
+                old_file.display(),
+                err
+            ),
+        }
+
+        Cachegrind::new()
+            .allow_aslr(self.allow_aslr)
+            .out_file(&output_file)
+            .run([&self.executable, &format!("--iai-run={name}").into()])
+            .map_err(|err| format!("Failed to run benchmark {name} in cachegrind: {err}"))?;
+
+        let new = parse_cachegrind_output(&output_file).map_err(|err| {
+            format!("Failed to parse cachegrind output for benchmark {name}: {err}")
+        })?;
+        let old = parse_cachegrind_output(&old_file).ok();
+
+        Ok(Stats { new, old })
+    }
 }
 
 /// Custom-test-framework runner. Should not be called directly.
 #[must_use]
 #[doc(hidden)]
 pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
-    let mut args_iter = args();
-    let executable = args_iter.next().unwrap();
+    let args = Args::parse();
+    let executable = env::args_os().next().expect("first argument is missing");
 
-    if let Some("--iai-run") = args_iter.next().as_deref() {
+    if let Some(bench) = args.iai_run {
         if !valgrind::running_on_valgrind() {
             warn!("Not running under valgrind");
         }
 
-        // In this branch, we're running under cachegrind, so execute the benchmark as quickly as
-        // possible and exit
-        let index: isize = args_iter.next().unwrap().parse().unwrap();
-
-        // -1 is used as a signal to do nothing and return. By recording an empty benchmark, we can
-        // subtract out the overhead from startup and dispatching to the right benchmark.
-        if index == -1 {
+        if bench.is_calibration() {
             Iai::new().run(|| {});
             return ExitCode::SUCCESS;
         }
 
-        let index = index as usize;
-        let f = benches[index].1;
+        let f = benches
+            .iter()
+            .find_map(|(name, f)| if *name == bench.name() { Some(f) } else { None })
+            .expect("function not found");
         let mut iai = Iai::new();
-
         f(&mut iai);
 
         return ExitCode::SUCCESS;
@@ -111,20 +189,20 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let allow_aslr = env::var_os("IAI_ALLOW_ASLR").is_some();
+    let mut runner = BenchRunner::new(executable);
+    runner.allow_aslr(env::var_os("IAI_ALLOW_ASLR").is_some());
 
-    let (calibration, old_calibration) =
-        match run_bench(&executable, -1, "iai_calibration", allow_aslr) {
-            Ok(value) => value,
-            Err(err) => {
-                error!("{err}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let calibration_stats = match runner.run(&Benchmark::Calibration) {
+        Ok(stats) => stats,
+        Err(err) => {
+            error!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
 
-    for (i, (name, _func)) in benches.iter().enumerate() {
+    for (name, _func) in benches.iter() {
         println!("{}", name);
-        let (stats, old_stats) = match run_bench(&executable, i as isize, name, allow_aslr) {
+        let stats = match runner.run(&Benchmark::User(name.to_string())) {
             Ok(value) => value,
             Err(err) => {
                 error!("{err}");
@@ -132,15 +210,7 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
             }
         };
 
-        let (stats, old_stats) = (
-            stats.subtract(&calibration),
-            match (&old_stats, &old_calibration) {
-                (Some(old_stats), Some(old_calibration)) => {
-                    Some(old_stats.subtract(old_calibration))
-                }
-                _ => None,
-            },
-        );
+        let stats = stats.subtract(&calibration_stats);
 
         fn signed_short(n: f64) -> String {
             let n_abs = n.abs();
@@ -178,14 +248,15 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
 
         println!(
             "  Instructions:     {:>15}{}",
-            stats.instruction_reads,
-            match &old_stats {
-                Some(old) => percentage_diff(stats.instruction_reads, old.instruction_reads),
+            stats.new.instruction_reads,
+            match &stats.old {
+                Some(old) => percentage_diff(stats.new.instruction_reads, old.instruction_reads),
                 None => "".to_owned(),
             }
         );
-        let summary = stats.summarize();
-        let old_summary = old_stats.map(|stat| stat.summarize());
+
+        let summary = stats.new.summarize();
+        let old_summary = stats.old.map(|stat| stat.summarize());
         println!(
             "  L1 Accesses:      {:>15}{}",
             summary.l1_hits,
