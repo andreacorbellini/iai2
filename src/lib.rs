@@ -62,10 +62,6 @@ impl Benchmark {
             Self::Calibration => "calibration",
         }
     }
-
-    fn is_calibration(&self) -> bool {
-        matches!(self, Self::Calibration)
-    }
 }
 
 impl FromStr for Benchmark {
@@ -155,60 +151,67 @@ impl BenchRunner {
     }
 }
 
+type UserBenchmarks = [(&'static str, fn(&'_ mut Iai))];
+
 /// Custom-test-framework runner. Should not be called directly.
 #[must_use]
 #[doc(hidden)]
-pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
+pub fn runner(benches: &UserBenchmarks) -> ExitCode {
     let args = Args::parse();
+
+    let result = if let Some(ref bench) = args.iai_run {
+        // We've been asked to run a single benchmark under valgrind
+        run_benchmark(benches, bench)
+    } else {
+        // Otherwise we're running normally under cargo
+        run_all_benchmarks(benches)
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            error!("{err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_benchmark(benches: &UserBenchmarks, bench: &Benchmark) -> Result<(), Box<dyn Error>> {
+    if !cachegrind::running_on_valgrind() {
+        warn!("Not running under valgrind");
+    }
+
+    match bench {
+        Benchmark::User(name) => {
+            let f = benches
+                .iter()
+                .find_map(|(name, f)| if *name == bench.name() { Some(f) } else { None })
+                .ok_or_else(|| format!("no benchmark function with name: {name}"))?;
+            let mut iai = Iai::new();
+            f(&mut iai);
+            Ok(())
+        }
+        Benchmark::Calibration => {
+            Iai::new().run(|| {});
+            Ok(())
+        }
+    }
+}
+
+fn run_all_benchmarks(benches: &UserBenchmarks) -> Result<(), Box<dyn Error>> {
     let executable = env::args_os().next().expect("first argument is missing");
 
-    if let Some(bench) = args.iai_run {
-        if !cachegrind::running_on_valgrind() {
-            warn!("Not running under valgrind");
-        }
-
-        if bench.is_calibration() {
-            Iai::new().run(|| {});
-            return ExitCode::SUCCESS;
-        }
-
-        let f = benches
-            .iter()
-            .find_map(|(name, f)| if *name == bench.name() { Some(f) } else { None })
-            .expect("function not found");
-        let mut iai = Iai::new();
-        f(&mut iai);
-
-        return ExitCode::SUCCESS;
-    }
-
-    // Otherwise we're running normally, under cargo
-    if let Err(err) = Cachegrind::check() {
-        error!("{err}");
-        error!("Please ensure that valgrind is installed and on $PATH");
-        return ExitCode::FAILURE;
-    }
+    Cachegrind::check()
+        .map_err(|err| format!("{err}\nPlease ensure that valgrind is installed and on $PATH"))?;
 
     let mut runner = BenchRunner::new(executable);
     runner.allow_aslr(env::var_os("IAI_ALLOW_ASLR").is_some());
 
-    let calibration_stats = match runner.run(&Benchmark::Calibration) {
-        Ok(stats) => stats,
-        Err(err) => {
-            error!("{err}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let calibration_stats = runner.run(&Benchmark::Calibration)?;
 
     for (name, _func) in benches.iter() {
         println!("{}", name);
-        let stats = match runner.run(&Benchmark::User(name.to_string())) {
-            Ok(value) => value,
-            Err(err) => {
-                error!("{err}");
-                return ExitCode::FAILURE;
-            }
-        };
+        let stats = runner.run(&Benchmark::User(name.to_string()))?;
 
         let stats = stats.subtract(&calibration_stats);
 
@@ -292,7 +295,7 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
         println!();
     }
 
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 #[derive(Debug)]
