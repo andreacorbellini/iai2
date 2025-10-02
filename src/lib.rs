@@ -5,12 +5,12 @@
 #![warn(unused_crate_dependencies)]
 #![doc(test(attr(deny(warnings))))]
 
+mod cachegrind;
 mod macros;
-mod valgrind;
 
-use crate::valgrind::Cachegrind;
-use crate::valgrind::CachegrindStats;
-use crate::valgrind::parse_cachegrind_output;
+use crate::cachegrind::Cachegrind;
+use crate::cachegrind::CachegrindStats;
+use crate::cachegrind::parse_cachegrind_output;
 use clap::Parser;
 use std::convert::Infallible;
 use std::env;
@@ -163,7 +163,7 @@ pub fn runner(benches: &[(&'static str, fn(&'_ mut Iai))]) -> ExitCode {
     let executable = env::args_os().next().expect("first argument is missing");
 
     if let Some(bench) = args.iai_run {
-        if !valgrind::running_on_valgrind() {
+        if !cachegrind::running_on_valgrind() {
             warn!("Not running under valgrind");
         }
 
@@ -311,9 +311,9 @@ impl Iai {
     where
         F: FnOnce() -> T,
     {
-        valgrind::start_instrumentation();
+        cachegrind::start_instrumentation();
         let result = black_box(f());
-        valgrind::stop_instrumentation();
+        cachegrind::stop_instrumentation();
         result
     }
 }
