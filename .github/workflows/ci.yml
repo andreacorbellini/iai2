@@ -18,6 +18,10 @@ jobs:
         with:
           toolchain: ${{ matrix.rust_version }}
       - run: sudo apt-get install -y valgrind
+      # Run the benchmarks multiple times to ensure that the code that
+      # calculates the delta between runs works properly
+      - run: cargo bench
+      - run: cargo bench
       - run: cargo bench
 
   lint:
